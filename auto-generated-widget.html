@@ -60,6 +60,7 @@ requirejs.config({
         Three: '//i2dcui.appspot.com/slingshot?url=http://threejs.org/build/three.min.js',
         ThreeSTLLoader: '//i2dcui.appspot.com/slingshot?url=http://threejs.org/examples/js/loaders/STLLoader.js',
         Clipper: '//i2dcui.appspot.com/js/clipper/clipper_unminified',
+        WrapVirtualDom: '//i2dcui.appspot.com/slingshot?url=https://raw.githubusercontent.com/tbfleming/wrap-virtual-dom/master/wrap-virtual-dom.js',
     },
     shim: {
         // See require.js docs for how to define dependencies that
@@ -108,7 +109,8 @@ cprequire_test(["inline:org-jscut-widget-prismatic"], function(myWidget) {
 } /*end_test*/ );
 
 // This is the main definition of your widget. Give it a unique name.
-cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "ThreeSTLLoader", "Clipper"], function () {
+cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "ThreeSTLLoader", "Clipper", "WrapVirtualDom"], function () {
+    'use strict';
     return {
         /**
          * The ID of the widget. You must define this and make it unique.
@@ -165,97 +167,134 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
          * instantiating code like a workspace or a different widget.
          */
         init: function() {
-            console.log("I am being initted. Thanks.");
-
             this.setupUiFromLocalStorage();
             this.btnSetup();
             this.forkSetup();
-            chilipeppr.subscribe("/com-chilipeppr-elem-dragdrop/ondroppedStl", this, this.onDroppedStl, 9);
-
-            console.log("I am done being initted.");
+            this.initRenderBody();
+            chilipeppr.subscribe("/org-jscut-widget-mesh/added", this, this.changedMesh);
+            chilipeppr.subscribe("/org-jscut-widget-mesh/removed", this, this.changedMesh);
         },
 
-        onDroppedStl: function (data, info) {
-            'use strict';
-            if (info.name.endsWith('.stl')) {
-                let loader = new THREE.STLLoader();
-                let geometry = loader.parse(data);
-                console.log(geometry);
-                let material = new THREE.MeshPhongMaterial({ color: 0x007777, specular: 0x111111, shininess: 200 });
-                let mesh = new THREE.Mesh(geometry, material);
-                chilipeppr.publish('/com-chilipeppr-widget-3dviewer/sceneadd', mesh);
+        // Managed by widget-mesh
+        meshes: [],
+        changedMesh: function(mesh, meshes) {
+            this.meshes = meshes;
+            this.changed = true;
+        },
 
-                let pos = geometry.getAttribute('position');
+        // Render widget body
+        renderBody: function () {
+            let h = WrapVirtualDom.h;
+            if (this.meshes.length === 0)
+                return h('div', {}, 'Drag in an STL file to get started.');
+            return h('table', { style: { width: '100%' } }, [
+                h('tr', {}, h('th', {}, 'File')),
+                this.meshes.map(mesh =>
+                    h('tr', {}, [
+                        h('td', {}, mesh.filename),
+                        h('td', { style: { float: 'right' } },
+                            h('button',
+                                { 'onclick': e => { this.processMesh(mesh) } },
+                                h('span.glyphicon.glyphicon-cutlery')))]))]);
+        },
 
-                let planeTriangles = [];
-                for (let i = 0; i < pos.length; i += 9)
-                    if (pos.array[i + 2] === pos.array[i + 5] && pos.array[i + 2] === pos.array[i + 8])
-                        planeTriangles.push(pos.array.subarray(i, i + 9));
-                planeTriangles.sort((a, b) => a[2] - b[2]);
+        // Set this to true to eventually trigger a rerender
+        changed: false,
 
-                let planeGeometry = new THREE.BufferGeometry();
-                let planeVertices = new Float32Array(planeTriangles.length * 9);
-                for (let i = 0; i < planeTriangles.length; ++i)
-                    for (let j = 0; j < 9; ++j)
-                        planeVertices[i * 9 + j] = planeTriangles[i][j];
-                planeGeometry.addAttribute('position', new THREE.BufferAttribute(planeVertices, 3));
+        // Set up renderBody's render loop
+        initRenderBody: function () {
+            let body = document.getElementById('org-jscut-widget-prismatic-body');
+            body.removeChild(body.firstChild);
+            let tree = this.renderBody();
+            let rootNode = WrapVirtualDom.createElement(tree);
+            body.appendChild(rootNode);
 
-                let planeMaterial = new THREE.MeshBasicMaterial({ color: 0xC0C0C0 });
-                let planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
-                chilipeppr.publish('/com-chilipeppr-widget-3dviewer/sceneadd', planeMesh);
-
-                let scale = 1000000;
-                let planes = [];
-                for (let i = 0; i < planeTriangles.length; ++i) {
-                    if (planes.length === 0 || planeTriangles[i][2] != planes[planes.length - 1].z)
-                        planes.push({ z: planeTriangles[i][2], paths: [] });
-                    planes[planes.length - 1].paths.push([
-                        { X: planeTriangles[i][0] * scale, Y: planeTriangles[i][1] * scale },
-                        { X: planeTriangles[i][3] * scale, Y: planeTriangles[i][4] * scale },
-                        { X: planeTriangles[i][6] * scale, Y: planeTriangles[i][7] * scale }]);
+            let rerender = () => {
+                if (this.changed) {
+                    let newTree = this.renderBody();
+                    let patches = WrapVirtualDom.diff(tree, newTree);
+                    rootNode = WrapVirtualDom.patch(rootNode, patches);
+                    tree = newTree;
+                    this.changed = false;
                 }
+                requestAnimationFrame(rerender);
+            };
+            requestAnimationFrame(rerender);
+        },
 
-                let co = new ClipperLib.ClipperOffset(2.0, scale / 1000);
-                for (let i = 0; i < planes.length; ++i) {
-                    let paths = planes[i].paths;
-                    planes[i].paths = [];
-                    let first = true;
-                    while (paths.length && paths[0].length) {
-                        co.AddPaths(paths, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
-                        if (first)
-                            co.Execute(paths, 1);
-                        else
-                            co.Execute(paths, -2 * scale);
-                        first = false;
-                        co.Clear();
-                        planes[i].paths = planes[i].paths.concat(paths);
+        processMesh: function (mesh) {
+            let geometry = mesh.threeMesh.geometry;
 
+            if (!(geometry instanceof THREE.BufferGeometry))
+                geometry = new THREE.BufferGeometry().fromGeometry(geometry);
+
+            let pos = geometry.getAttribute('position');
+
+            let planeTriangles = [];
+            for (let i = 0; i < pos.length; i += 9)
+                if (pos.array[i + 2] === pos.array[i + 5] && pos.array[i + 2] === pos.array[i + 8])
+                    planeTriangles.push(pos.array.subarray(i, i + 9));
+            planeTriangles.sort((a, b) => a[2] - b[2]);
+
+            let planeGeometry = new THREE.BufferGeometry();
+            let planeVertices = new Float32Array(planeTriangles.length * 9);
+            for (let i = 0; i < planeTriangles.length; ++i)
+                for (let j = 0; j < 9; ++j)
+                    planeVertices[i * 9 + j] = planeTriangles[i][j];
+            planeGeometry.addAttribute('position', new THREE.BufferAttribute(planeVertices, 3));
+
+            let planeMaterial = new THREE.MeshBasicMaterial({ color: 0xC0C0C0 });
+            let planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+            //chilipeppr.publish('/com-chilipeppr-widget-3dviewer/sceneadd', planeMesh);
+
+            let scale = 1000000;
+            let planes = [];
+            for (let i = 0; i < planeTriangles.length; ++i) {
+                if (planes.length === 0 || planeTriangles[i][2] != planes[planes.length - 1].z)
+                    planes.push({ z: planeTriangles[i][2], paths: [] });
+                planes[planes.length - 1].paths.push([
+                    { X: planeTriangles[i][0] * scale, Y: planeTriangles[i][1] * scale },
+                    { X: planeTriangles[i][3] * scale, Y: planeTriangles[i][4] * scale },
+                    { X: planeTriangles[i][6] * scale, Y: planeTriangles[i][7] * scale }]);
+            }
+
+            let co = new ClipperLib.ClipperOffset(2.0, scale / 1000);
+            for (let i = 0; i < planes.length; ++i) {
+                let paths = planes[i].paths;
+                planes[i].paths = [];
+                let first = true;
+                while (paths.length && paths[0].length) {
+                    co.AddPaths(paths, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+                    if (first)
+                        co.Execute(paths, 1);
+                    else
+                        co.Execute(paths, -2 * scale);
+                    first = false;
+                    co.Clear();
+                    planes[i].paths = planes[i].paths.concat(paths);
+
+                }
+            }
+
+            function cleanup(coord) {
+                return (coord / scale).toFixed(4);
+            }
+
+            let gcode = '';
+            for (let i = 1; i < planes.length; ++i) {
+                let paths = planes[i].paths;
+                for (let j = 0; j < paths.length; ++j) {
+                    let path = paths[j];
+                    path.push(path[0]);
+                    gcode += 'G0 Z100\n';
+                    gcode += 'G0 X' + cleanup(path[0].X) + ' Y' + cleanup(path[0].Y);
+                    gcode += 'G0 Z' + planes[i].z.toFixed(4) + '\n';
+                    for (let k = 1; k < path.length; ++k) {
+                        gcode += 'G1 X' + cleanup(path[k].X) + ' Y' + cleanup(path[k].Y) + '\n';
                     }
                 }
-
-                function cleanup(coord) {
-                    return (coord / scale).toFixed(4);
-                }
-
-                let gcode = '';
-                for (let i = 1; i < planes.length; ++i) {
-                    let paths = planes[i].paths;
-                    for (let j = 0; j < paths.length; ++j) {
-                        let path = paths[j];
-                        path.push(path[0]);
-                        gcode += 'G0 Z100\n';
-                        gcode += 'G0 X' + cleanup(path[0].X) + ' Y' + cleanup(path[0].Y);
-                        gcode += 'G0 Z' + planes[i].z.toFixed(4) + '\n';
-                        for (let k = 1; k < path.length; ++k) {
-                            gcode += 'G1 X' + cleanup(path[k].X) + ' Y' + cleanup(path[k].Y) + '\n';
-                        }
-                    }
-                }
-                chilipeppr.publish('/com-chilipeppr-elem-dragdrop/ondropped', gcode);
-
-                return false;
-            } else
-                return true;
+            }
+            chilipeppr.publish('/com-chilipeppr-elem-dragdrop/ondropped', gcode);
         },
 
         /**
@@ -496,38 +535,8 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             </div> <span class="panel-title" data-toggle="popover">Prismatic Widget</span>
 
         </div>
-        <div class="panel-body">
-            <!-- Nav tabs -->
-            <ul class="nav nav-tabs" role="tablist">
-                <li class="active"><a href="#org-jscut-widget-prismatic-tab1" role="tab" data-toggle="tab">Tab 1</a>
-                </li>
-                <li><a href="#org-jscut-widget-prismatic-tab2" role="tab" data-toggle="tab">Tab 2</a></li>
-                <li><a href="#org-jscut-widget-prismatic-tab3" role="tab" data-toggle="tab">Tab 3</a></li>
-            </ul>
-            <!-- Tab panes -->
-
-            <div class="tab-content">
-    
-                <!-- Tab 1 -->
-                <div class="tab-pane active" id="org-jscut-widget-prismatic-tab1">
-                    <p>Something goes here.</p>
-                    <div class="">
-                        <button type="button" class="btn btn-xs btn-default btn-helloworld2" style="margin: 4px 0;">Hello World 2</button>
-                    </div>
-                </div>
-
-                <!-- Tab 2 -->
-                <div class="tab-pane" id="org-jscut-widget-prismatic-tab2">
-                    <p>This is the content of tab 2.</p>
-                </div>
-
-                <!-- Tab 3 -->
-                <div class="tab-pane" id="org-jscut-widget-prismatic-tab3">
-                    <p>This is the content of tab 3.</p>
-                </div>
-
-            </div>
-
+        <div id="org-jscut-widget-prismatic-body" class="panel-body">
+            Loading...
         </div>
     </div>
 </body>
