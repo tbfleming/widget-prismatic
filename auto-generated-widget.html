@@ -166,36 +166,86 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
          * All widgets should have an init method. It should be run by the
          * instantiating code like a workspace or a different widget.
          */
-        init: function() {
+        init: function () {
             this.setupUiFromLocalStorage();
             this.btnSetup();
             this.forkSetup();
             this.initRenderBody();
+            this.requestMeshWidget();
             chilipeppr.subscribe("/org-jscut-widget-mesh/added", this, this.changedMesh);
-            chilipeppr.subscribe("/org-jscut-widget-mesh/removed", this, this.changedMesh);
+            chilipeppr.subscribe("/org-jscut-widget-mesh/removed", this, this.removedMesh);
+        },
+
+        meshWidget: null,
+        requestMeshWidget: function () {
+            let f = () => {
+                chilipeppr.publish('/org-jscut-widget-mesh/getWidget', widget => {
+                    this.meshWidget = widget;
+                    this.changed = true;
+                });
+                if (!this.meshWidget)
+                    requestAnimationFrame(f);
+            };
+            f();
         },
 
         // Managed by widget-mesh
         meshes: [],
-        changedMesh: function(mesh, meshes) {
+        changedMesh: function (mesh, meshes) {
             this.meshes = meshes;
             this.changed = true;
+        },
+
+        objectMesh: null,
+        stockMesh: null,
+        removedMesh: function (mesh, meshes) {
+            if (mesh === this.objectMesh)
+                this.objectMesh = null;
+            if (mesh === this.stockMesh)
+                this.stockMesh = null;
+            this.changedMesh(mesh, meshes);
+        },
+
+        renderMeshSelection: function (name, field, otherField) {
+            let h = WrapVirtualDom.h;
+            return h('tr', [
+                h('th', { style: { 'vertical-align': 'top', 'padding-right': '10px' } }, name + ':'),
+                h('td', this.meshWidget.renderMeshSelection(this[field], mesh => {
+                    if (mesh && mesh === this[otherField])
+                        chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "Object and Stock mesh must be different. Stock mesh is optional.");
+                    else if (mesh && mesh.types.indexOf('3d') < 0)
+                        chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "This isn't a 3D mesh");
+                    else {
+                        this[field] = mesh;
+                        this.changed = true;
+                    }
+                }))
+            ]);
         },
 
         // Render widget body
         renderBody: function () {
             let h = WrapVirtualDom.h;
+            if (!this.meshWidget)
+                return h('div', 'Waiting for Mesh Widget to load.');
             if (this.meshes.length === 0)
-                return h('div', {}, 'Drag in an STL file to get started.');
-            return h('table', { style: { width: '100%' } }, [
-                h('tr', {}, h('th', {}, 'File')),
-                this.meshes.filter(mesh => mesh.types.indexOf('3d') >= 0).map(mesh =>
-                    h('tr', {}, [
-                        h('td', {}, mesh.name),
-                        h('td', { style: { float: 'right' } },
-                            h('button',
-                                { 'onclick': e => { this.chopMesh(mesh) } },
-                                h('span.glyphicon.glyphicon-cutlery')))]))]);
+                return h('div', 'Drag in an STL file to get started.');
+            return h('div', { style: {} }, [
+                h('table', { style: { width: '100%' } }, [
+                    h('colgroup', [
+                        h('col'),
+                        h('col', { style: { width: '100%' } })
+                    ]),
+                    this.renderMeshSelection('Object', 'objectMesh', 'stockMesh'),
+                    this.renderMeshSelection('Stock', 'stockMesh', 'objectMesh'),
+                ]), // table
+                h('button',
+                    {
+                        disabled: !this.objectMesh,
+                        onclick: e => this.chopMesh(this.objectMesh),
+                    },
+                    'Create Meshes For CAM-2D')
+            ]);
         },
 
         // Set this to true to eventually trigger a rerender
