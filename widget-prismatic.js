@@ -176,20 +176,26 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             this.changedMesh(mesh, meshes);
         },
 
-        renderMeshSelection: function (name, field, otherField) {
+        // States for renderMeshSelection
+        objectSelection: { name: 'Object', field: 'objectMesh', otherField: 'stockMesh' },
+        stockSelection: { name: 'Stock', field: 'stockMesh', otherField: 'objectMesh' },
+
+        renderMeshSelection: function (state) {
             let h = WrapVirtualDom.h;
             return h('tr', [
-                h('th', { style: { 'vertical-align': 'top', 'padding-right': '10px' } }, name + ':'),
-                h('td', this.meshWidget.renderMeshSelection(this[field], mesh => {
-                    if (mesh && mesh === this[otherField])
-                        chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "Object and Stock mesh must be different. Stock mesh is optional.");
-                    else if (mesh && mesh.types.indexOf('3d') < 0)
-                        chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "This isn't a 3D mesh");
-                    else {
-                        this[field] = mesh;
-                        this.changed = true;
-                    }
-                }))
+                h('th', { style: { 'vertical-align': 'top', 'padding-right': '10px' } }, state.name + ':'),
+                h('td', this.meshWidget.renderMeshSelection(state, this[state.field],
+                    () => this.changed = true,
+                    mesh => {
+                        if (mesh && mesh === this[state.otherField])
+                            chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "Object and Stock mesh must be different. Stock mesh is optional.");
+                        else if (mesh && mesh.types.indexOf('3d') < 0)
+                            chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "This isn't a 3D mesh");
+                        else {
+                            this[state.field] = mesh;
+                            this.changed = true;
+                        }
+                    }))
             ]);
         },
 
@@ -206,8 +212,8 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                         h('col'),
                         h('col', { style: { width: '100%' } })
                     ]),
-                    this.renderMeshSelection('Object', 'objectMesh', 'stockMesh'),
-                    this.renderMeshSelection('Stock', 'stockMesh', 'objectMesh'),
+                    this.renderMeshSelection(this.objectSelection),
+                    this.renderMeshSelection(this.stockSelection),
                 ]), // table
                 h('button',
                     {
