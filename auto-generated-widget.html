@@ -272,55 +272,96 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             requestAnimationFrame(rerender);
         },
 
-        chopMesh: function (mesh) {
+        // Get triangles parallel to XY plane, sorted by Z
+        getPlaneTriangles: function (mesh) {
             let geometry = mesh.threeMesh.geometry;
             if (!(geometry instanceof THREE.BufferGeometry))
                 geometry = new THREE.BufferGeometry().fromGeometry(geometry);
-
             let pos = geometry.getAttribute('position');
+            let vertexes = pos.array.slice(0, pos.length * 9);
+
+            let topZ = Number.MIN_VALUE;
+            let bottomZ = Number.MAX_VALUE;
+            for (let i = 0; i < pos.length; i += 9) {
+                if (vertexes[i + 2] === vertexes[i + 5] && vertexes[i + 2] === vertexes[i + 8]) {
+                    topZ = Math.max(topZ, vertexes[i + 2]);
+                    bottomZ = Math.min(bottomZ, vertexes[i + 2]);
+                }
+            }
+
+            // The bottom plane's triangles face down. Make them face up.
+            if (topZ !== bottomZ) {
+                for (let i = 0; i < pos.length; i += 9) {
+                    if (vertexes[i + 2] != bottomZ || vertexes[i + 5] != bottomZ || vertexes[i + 8] != bottomZ)
+                        continue;
+                    let x = vertexes[i + 0];
+                    let y = vertexes[i + 1];
+                    vertexes[i + 0] = vertexes[i + 3];
+                    vertexes[i + 1] = vertexes[i + 4];
+                    vertexes[i + 3] = x;
+                    vertexes[i + 4] = y;
+                }
+            }
+
+            // Indexes of triangles to keep
             let indexes = [];
             for (let i = 0; i < pos.length; i += 9) {
-                if (pos.array[i + 2] === pos.array[i + 5] && pos.array[i + 2] === pos.array[i + 8]) {
-                    let dx1 = pos.array[i + 3] - pos.array[i + 0];
-                    let dy1 = pos.array[i + 4] - pos.array[i + 1];
-                    let dx2 = pos.array[i + 6] - pos.array[i + 0];
-                    let dy2 = pos.array[i + 7] - pos.array[i + 1];
+                if (vertexes[i + 2] === vertexes[i + 5] && vertexes[i + 2] === vertexes[i + 8]) {
+                    let dx1 = vertexes[i + 3] - vertexes[i + 0];
+                    let dy1 = vertexes[i + 4] - vertexes[i + 1];
+                    let dx2 = vertexes[i + 6] - vertexes[i + 0];
+                    let dy2 = vertexes[i + 7] - vertexes[i + 1];
+                    // face-up only
                     if (dx1 * dy2 - dx2 * dy1 > 0)
                         indexes.push(i);
                 }
             }
-            indexes.sort((a, b) => pos.array[a + 2] - pos.array[b + 2]);
 
-            let plane = 0;
+            indexes.sort((a, b) => vertexes[a + 2] - vertexes[b + 2]);
+
+            // Range of indexes for each plane
+            let planes = [];
             for (let begin = 0; begin < indexes.length;) {
-                let z = pos.array[indexes[begin] + 2];
+                let z = vertexes[indexes[begin] + 2];
                 let end;
-                for (end = begin + 1; end < indexes.length && pos.array[indexes[end] + 2] === z; ++end)
+                for (end = begin + 1; end < indexes.length && vertexes[indexes[end] + 2] === z; ++end)
                     ;
-                let planeGeometry = new THREE.BufferGeometry();
-                let planeVertices = new Float32Array(end * 9);
-                let k = 0;
-                for (let i = 0; i < end; ++i) {
-                    let index = indexes[i];
-                    planeVertices[k++] = pos.array[index + 0];
-                    planeVertices[k++] = pos.array[index + 1];
-                    planeVertices[k++] = z;
-                    planeVertices[k++] = pos.array[index + 3];
-                    planeVertices[k++] = pos.array[index + 4];
-                    planeVertices[k++] = z;
-                    planeVertices[k++] = pos.array[index + 6];
-                    planeVertices[k++] = pos.array[index + 7];
-                    planeVertices[k++] = z;
-                }
-                planeGeometry.addAttribute('position', new THREE.BufferAttribute(planeVertices, 3));
-                let planeMaterial = new THREE.MeshBasicMaterial({ color: 0x800000 });
-                let planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+                planes.push({ begin: begin, end: end, z: z });
+                begin = end;
+            }
+
+            return {
+                vertexes: vertexes,
+                indexes: indexes,
+                planes: planes,
+            };
+        }, // getPlaneTriangles
+
+        scale: 100000,
+
+        getPathsFromTriangles: function (triangles, begin, end) {
+            let paths = [];
+            for (let i = begin; i < end; ++i) {
+                let index = triangles.indexes[i];
+                paths.push([
+                    { X: Math.round(triangles.vertexes[index + 0] * this.scale), Y: Math.round(triangles.vertexes[index + 1] * this.scale) },
+                    { X: Math.round(triangles.vertexes[index + 3] * this.scale), Y: Math.round(triangles.vertexes[index + 4] * this.scale) },
+                    { X: Math.round(triangles.vertexes[index + 6] * this.scale), Y: Math.round(triangles.vertexes[index + 7] * this.scale) },
+                ]);
+            }
+            return paths;
+        },
+
+        chopMesh: function (mesh) {
+            let triangles = this.getPlaneTriangles(mesh);
+            for (let i = 0; i < triangles.planes.length; ++i) {
+                let plane = triangles.planes[i];
+                let paths = this.getPathsFromTriangles(triangles, plane.begin, plane.end);
+                let planeMesh = this.meshWidget.pathsToThreeMesh(paths, plane.z, this.scale, { color: 0x800000 });
                 chilipeppr.publish('/org-jscut-widget-mesh/addThreeMesh', planeMesh, {
-                    name: mesh.name + ': Machine ' + plane,
+                    name: mesh.name + ': Machine ' + i,
                     types: ['2d'],
                 });
-                ++plane;
-                begin = end;
             }
         },
 
