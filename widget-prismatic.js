@@ -178,7 +178,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
 
         // States for renderMeshSelection
         objectSelection: { name: 'Object', field: 'objectMesh' },
-        stockSelection: { name: 'Stock', field: 'stockMesh' },
+        stockSelection: { name: 'Stock\u00A0(Optional)', field: 'stockMesh' },
 
         renderMeshSelection: function (state) {
             let h = WrapVirtualDom.h;
@@ -197,6 +197,25 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             ]);
         },
 
+        renderEditNumber: function (field) {
+            let h = WrapVirtualDom.h;
+            return h('input', {
+                type: 'number',
+                value: this[field],
+                style: { width: '100px' },
+                onchange: e => {
+                    let v = Number(e.target.value);
+                    if (isNaN(v))
+                        v = 0;
+                    this[field] = v;
+                    e.target.value = v;
+                    this.changed = true;
+                },
+            });
+        },
+
+        expandStock: 6,
+
         // Render widget body
         renderBody: function () {
             let h = WrapVirtualDom.h;
@@ -212,7 +231,12 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                     ]),
                     this.renderMeshSelection(this.objectSelection),
                     this.renderMeshSelection(this.stockSelection),
+                    h('tr', [
+                        h('th', 'Expand\u00A0Stock:'),
+                        this.renderEditNumber('expandStock'),
+                    ]),
                 ]), // table
+                h('br'), h('br'),
                 h('button',
                     {
                         disabled: !this.objectMesh,
@@ -359,6 +383,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                 let paths = this.getPathsFromTriangles(stockTriangles, plane.begin, plane.end);
                 stockPaths = this.meshWidget.unionPaths(stockPaths, paths);
             }
+            stockPaths = this.meshWidget.offsetPaths(stockPaths, this.expandStock * this.scale);
 
             // If the user provided a stock, then assume holes are intentional keep-outs.
             // If the user didn't, then remove the holes to create the stock.
