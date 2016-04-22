@@ -248,7 +248,15 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                         disabled: !this.objectMesh,
                         onclick: e => this.chopMesh(),
                     },
-                    'Create Meshes For CAM-2D')
+                    'Create Meshes For CAM-2D'),
+                h('br'), h('br'),
+                'Object and Stock Requirements:',
+                h('ul', [
+                    h('li', 'No sloped walls'),
+                    h('li', 'No overhangs'),
+                    h('li', 'All holes are vertical'),
+                    h('li', 'Must be a good mesh'),
+                ]),
             ]);
         },
 
@@ -353,11 +361,10 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                     { X: Math.round(triangles.vertexes[index + 6] * this.scale), Y: Math.round(triangles.vertexes[index + 7] * this.scale) },
                 ]);
             }
-            return paths;
+            return ClipperLib.Clipper.SimplifyPolygons(paths, ClipperLib.PolyFillType.pftPositive);
         },
 
         chopMesh: function () {
-            debugger;
             let objectMesh = this.objectMesh;
             let stockMesh = this.stockMesh;
             if (!stockMesh)
@@ -411,8 +418,9 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             }
 
             for (let i = 0; i < objectTriangles.planes.length; ++i) {
-                let plane = objectTriangles.planes[objectTriangles.planes.length - i - 1];
-                this.meshWidget.addMeshFromPaths(plane.paths, plane.z, this.scale, { color: 0x800000 }, { name: objectMesh.name + ': cut plane ' + i });
+                let n = objectTriangles.planes.length - i - 1;
+                let plane = objectTriangles.planes[n];
+                this.meshWidget.addMeshFromPaths(plane.paths, plane.z, this.scale, { color: 0x800000 }, { name: objectMesh.name + ': cut plane ' + n });
             }
         },
 
