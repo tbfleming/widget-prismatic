@@ -207,8 +207,8 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
         },
 
         // States for renderMeshSelection
-        objectSelection: { name: 'Object', field: 'objectMesh', otherField: 'stockMesh' },
-        stockSelection: { name: 'Stock', field: 'stockMesh', otherField: 'objectMesh' },
+        objectSelection: { name: 'Object', field: 'objectMesh' },
+        stockSelection: { name: 'Stock', field: 'stockMesh' },
 
         renderMeshSelection: function (state) {
             let h = WrapVirtualDom.h;
@@ -217,9 +217,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                 h('td', this.meshWidget.renderMeshSelection(state, this[state.field],
                     () => this.changed = true,
                     mesh => {
-                        if (mesh && mesh === this[state.otherField])
-                            chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "Object and Stock mesh must be different. Stock mesh is optional.");
-                        else if (mesh && mesh.types.indexOf('3d') < 0)
+                        if (mesh && mesh.types.indexOf('3d') < 0)
                             chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "This isn't a 3D mesh");
                         else {
                             this[state.field] = mesh;
@@ -248,7 +246,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                 h('button',
                     {
                         disabled: !this.objectMesh,
-                        onclick: e => this.chopMesh(this.objectMesh),
+                        onclick: e => this.chopMesh(),
                     },
                     'Create Meshes For CAM-2D')
             ]);
@@ -358,16 +356,63 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             return paths;
         },
 
-        chopMesh: function (mesh) {
-            let triangles = this.getPlaneTriangles(mesh);
-            for (let i = 0; i < triangles.planes.length; ++i) {
-                let plane = triangles.planes[i];
-                let paths = this.getPathsFromTriangles(triangles, plane.begin, plane.end);
-                let planeMesh = this.meshWidget.pathsToThreeMesh(paths, plane.z, this.scale, { color: 0x800000 });
-                chilipeppr.publish('/org-jscut-widget-mesh/addThreeMesh', planeMesh, {
-                    name: mesh.name + ': Machine ' + i,
-                    types: ['2d'],
-                });
+        chopMesh: function () {
+            debugger;
+            let objectMesh = this.objectMesh;
+            let stockMesh = this.stockMesh;
+            if (!stockMesh)
+                stockMesh = objectMesh;
+
+            let objectTriangles = this.getPlaneTriangles(objectMesh);
+            let stockTriangles = this.getPlaneTriangles(stockMesh);
+
+            if (objectTriangles.planes.length < 2) {
+                chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "Error: only found " + objectTriangles.planes.length + " planes in object");
+                return;
+            }
+
+            if (stockTriangles.planes.length < 2) {
+                chilipeppr.publish("/com-chilipeppr-elem-flashmsg/flashmsg", "Prismatic", "Error: only found " + objectTriangles.planes.length + " planes in stock");
+                return;
+            }
+
+            // Get the stock's footprint
+            let stockPaths = [];
+            for(let plane of stockTriangles.planes) {
+                let paths = this.getPathsFromTriangles(stockTriangles, plane.begin, plane.end);
+                stockPaths = this.meshWidget.unionPaths(stockPaths, paths);
+            }
+
+            // If the user provided a stock, then assume holes are intentional keep-outs.
+            // If the user didn't, then remove the holes to create the stock.
+            if (!this.stockMesh)
+                stockPaths = this.meshWidget.removeHolesFromPaths(stockPaths);
+
+            //this.meshWidget.addMeshFromPaths(stockPaths, 10, this.scale, { color: 0x800000 }, { name: 'stock' });
+
+            for(let plane of objectTriangles.planes) {
+                plane.paths = this.getPathsFromTriangles(objectTriangles, plane.begin, plane.end);
+            }
+
+            // The bottom mesh was originally face-down; the holes and the outside area mark what to cut.
+            objectTriangles.planes[0].paths = this.meshWidget.diffPaths(stockPaths, objectTriangles.planes[0].paths);
+
+            // Prevent cutting though upper-layers to reach lower ones
+            for (let i = objectTriangles.planes.length - 2; i >= 0; --i) {
+                objectTriangles.planes[i].paths = this.meshWidget.diffPaths(
+                    objectTriangles.planes[i].paths,
+                    objectTriangles.planes[i + 1].paths);
+            }
+
+            let cut = [];
+            for(let plane of objectTriangles.planes) {
+                cut = this.meshWidget.unionPaths(cut, plane.paths);
+                plane.paths = cut;
+            }
+
+            for (let i = 0; i < objectTriangles.planes.length; ++i) {
+                let plane = objectTriangles.planes[objectTriangles.planes.length - i - 1];
+                this.meshWidget.addMeshFromPaths(plane.paths, plane.z, this.scale, { color: 0x800000 }, { name: objectMesh.name + ': cut plane ' + i });
             }
         },
 
