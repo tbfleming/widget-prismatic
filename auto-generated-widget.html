@@ -310,15 +310,10 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
 
         // Get triangles parallel to XY plane, sorted by Z
         getPlaneTriangles: function (mesh) {
-            let geometry = mesh.threeMesh.geometry;
-            if (!(geometry instanceof THREE.BufferGeometry))
-                geometry = new THREE.BufferGeometry().fromGeometry(geometry);
-            let pos = geometry.getAttribute('position');
-            let vertexes = pos.array.slice(0, pos.length * 9);
-
+            let vertexes = this.meshWidget.getTransformedVertexes(mesh.threeMesh);
             let topZ = Number.MIN_VALUE;
             let bottomZ = Number.MAX_VALUE;
-            for (let i = 0; i < pos.length; i += 9) {
+            for (let i = 0; i < vertexes.length; i += 9) {
                 if (vertexes[i + 2] === vertexes[i + 5] && vertexes[i + 2] === vertexes[i + 8]) {
                     topZ = Math.max(topZ, vertexes[i + 2]);
                     bottomZ = Math.min(bottomZ, vertexes[i + 2]);
@@ -327,7 +322,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
 
             // The bottom plane's triangles face down. Make them face up.
             if (topZ !== bottomZ) {
-                for (let i = 0; i < pos.length; i += 9) {
+                for (let i = 0; i < vertexes.length; i += 9) {
                     if (vertexes[i + 2] != bottomZ || vertexes[i + 5] != bottomZ || vertexes[i + 8] != bottomZ)
                         continue;
                     let x = vertexes[i + 0];
@@ -341,7 +336,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
 
             // Indexes of triangles to keep
             let indexes = [];
-            for (let i = 0; i < pos.length; i += 9) {
+            for (let i = 0; i < vertexes.length; i += 9) {
                 if (vertexes[i + 2] === vertexes[i + 5] && vertexes[i + 2] === vertexes[i + 8]) {
                     let dx1 = vertexes[i + 3] - vertexes[i + 0];
                     let dy1 = vertexes[i + 4] - vertexes[i + 1];
