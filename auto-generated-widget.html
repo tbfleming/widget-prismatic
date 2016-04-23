@@ -270,9 +270,9 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                 h('button',
                     {
                         disabled: !this.objectMesh,
-                        onclick: e => this.chopMesh(),
+                        onclick: e => this.createOperations(),
                     },
-                    'Create Meshes For CAM-2D'),
+                    'Create Cam2D Operations'),
                 h('br'), h('br'),
                 'Object and Stock Requirements:',
                 h('ul', [
@@ -388,7 +388,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             return ClipperLib.Clipper.SimplifyPolygons(paths, ClipperLib.PolyFillType.pftPositive);
         },
 
-        chopMesh: function () {
+        createOperations: function () {
             let objectMesh = this.objectMesh;
             let stockMesh = this.stockMesh;
             if (!stockMesh)
@@ -442,12 +442,20 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                 plane.paths = cut;
             }
 
+            let meshes = [];
             for (let i = 0; i < objectTriangles.planes.length; ++i) {
                 let n = objectTriangles.planes.length - i - 1;
                 let plane = objectTriangles.planes[n];
-                this.meshWidget.addMeshFromPaths(plane.paths, plane.z, this.scale, { color: 0x800000 }, { name: objectMesh.name + ': cut plane ' + n });
+                meshes.push(this.meshWidget.addMeshFromPaths(
+                    plane.paths,
+                    plane.z,
+                    this.scale,
+                    { color: 0x800000 },
+                    { name: objectMesh.name + ': cut plane ' + n }));
             }
-        },
+
+            chilipeppr.publish("/org-jscut-widget-cam2d/createFromMeshes", meshes);
+        }, // createOperations()
 
         /**
          * Call this method from init to setup all the buttons when this widget
