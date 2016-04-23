@@ -183,7 +183,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
         renderMeshSelection: function (state) {
             let h = WrapVirtualDom.h;
             return h('tr', [
-                h('th', { style: { 'vertical-align': 'top', 'padding-right': '10px' } }, state.name + ':'),
+                h('th', { style: { 'padding-right': '10px' } }, state.name + ':'),
                 h('td', this.meshWidget.renderMeshSelection(state, this[state.field],
                     () => this.changed = true,
                     mesh => {
@@ -236,8 +236,8 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
                         this.renderEditNumber('expandStock'),
                     ]),
                 ]), // table
-                h('br'), h('br'),
-                h('button',
+                h('br'),
+                h('button.btn.btn-default',
                     {
                         disabled: !this.objectMesh,
                         onclick: e => this.createOperations(),
