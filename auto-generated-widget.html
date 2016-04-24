@@ -231,6 +231,7 @@ cpdefine("inline:org-jscut-widget-prismatic", ["chilipeppr_ready", "Three", "Thr
             let h = WrapVirtualDom.h;
             return h('input', {
                 type: 'number',
+                step: 'any',
                 value: this[field],
                 style: { width: '100px' },
                 onchange: e => {
